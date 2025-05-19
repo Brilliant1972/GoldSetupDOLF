@@ -107,6 +107,13 @@ class DOLFBot:
         try:
             self.telegram_bot = TelegramBot()
             self.logger.info("Telegram bot initialized")
+            # Initialize the Telegram bot with exchanges and metrics
+            self.telegram_bot.initialize(
+                exchanges=self.exchanges,
+                metrics=self.metrics,
+                market_condition="Medium",
+                confidence_threshold=0.5
+            )
         except ValueError as e:
             self.telegram_bot = None
             self.logger.warning(f"Telegram bot not initialized: {str(e)}")
