@@ -27,61 +27,58 @@ class CoinMarketCapAPI:
         Returns:
             Dictionary containing the top coins data
         """
+        if self.api_key and self.api_key != "your_coinmarketcap_api_key":
+            try:
+                self.logger.info(f"Fetching top {limit} coins from CoinMarketCap")
+                url = f"{self.base_url}/cryptocurrency/listings/latest"
+                
+                headers = {
+                    "X-CMC_PRO_API_KEY": self.api_key,
+                    "Accept": "application/json"
+                }
+                
+                params = {
+                    "start": 1,
+                    "limit": limit,
+                    "convert": "USD",
+                    "sort": "market_cap",
+                    "sort_dir": "desc"
+                }
+                
+                response = requests.get(url, headers=headers, params=params)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    coins = []
+                    for coin in data.get("data", []):
+                        symbol = coin.get("symbol")
+                        if symbol:
+                            coins.append({
+                                "id": coin.get("id"),
+                                "name": coin.get("name"),
+                                "symbol": symbol,
+                                "market_cap": coin.get("quote", {}).get("USD", {}).get("market_cap"),
+                                "source": "CoinMarketCap",
+                                "status": "LIVE"
+                            })
+                    
+                    return {
+                        "coins": coins,
+                        "source": "CoinMarketCap",
+                        "status": "LIVE"
+                    }
+                else:
+                    self.logger.error(f"Error fetching data from CoinMarketCap: {response.text}")
+            except Exception as e:
+                self.logger.error(f"Error connecting to CoinMarketCap: {str(e)}")
+        
         if self.use_mock:
             self.logger.info("Using mock data for CoinMarketCap")
             return self._get_mock_top_coins(limit)
         
-        if not self.api_key:
-            self.logger.warning("CoinMarketCap API key not found, using CoinGecko as fallback")
-            return self._get_coingecko_top_coins(limit)
-        
-        try:
-            self.logger.info(f"Fetching top {limit} coins from CoinMarketCap")
-            url = f"{self.base_url}/cryptocurrency/listings/latest"
-            
-            headers = {
-                "X-CMC_PRO_API_KEY": self.api_key,
-                "Accept": "application/json"
-            }
-            
-            params = {
-                "start": 1,
-                "limit": limit,
-                "convert": "USD",
-                "sort": "market_cap",
-                "sort_dir": "desc"
-            }
-            
-            response = requests.get(url, headers=headers, params=params)
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                coins = []
-                for coin in data.get("data", []):
-                    symbol = coin.get("symbol")
-                    if symbol:
-                        coins.append({
-                            "id": coin.get("id"),
-                            "name": coin.get("name"),
-                            "symbol": symbol,
-                            "market_cap": coin.get("quote", {}).get("USD", {}).get("market_cap"),
-                            "source": "CoinMarketCap",
-                            "status": "LIVE"
-                        })
-                
-                return {
-                    "coins": coins,
-                    "source": "CoinMarketCap",
-                    "status": "LIVE"
-                }
-            else:
-                self.logger.error(f"Error fetching data from CoinMarketCap: {response.text}")
-                return self._get_coingecko_top_coins(limit)
-                
-        except Exception as e:
-            self.logger.error(f"Error connecting to CoinMarketCap: {str(e)}")
-            return self._get_coingecko_top_coins(limit)
+        self.logger.warning("CoinMarketCap API key not found or failed, using CoinGecko as fallback")
+        return self._get_coingecko_top_coins(limit)
             
     def _get_coingecko_top_coins(self, limit: int = 60) -> Dict[str, Any]:
         """Get top cryptocurrencies from CoinGecko as fallback.

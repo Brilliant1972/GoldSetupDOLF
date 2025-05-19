@@ -20,15 +20,17 @@ class TelegramBot:
         
         Credentials are loaded from environment variables:
         - TELEGRAM_BOT_TOKEN: Telegram bot token
-        - TELEGRAM_CHAT_ID: Telegram chat ID to send messages to
+        - TELEGRAM_CHAT_ID: Telegram chat ID to send messages to (can be comma-separated for multiple IDs)
         """
         self.token = os.getenv("TELEGRAM_BOT_TOKEN")
-        self.chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        chat_id_str = os.getenv("TELEGRAM_CHAT_ID")
         
         if not self.token:
             raise ValueError("TELEGRAM_BOT_TOKEN environment variable is missing. Please add it to your .env file.")
-        if not self.chat_id:
+        if not chat_id_str:
             raise ValueError("TELEGRAM_CHAT_ID environment variable is missing. Please add it to your .env file.")
+            
+        self.chat_ids = [chat_id.strip() for chat_id in chat_id_str.split(',')]
             
         self.logger = logging.getLogger("telegram_bot")
         self.base_url = f"https://api.telegram.org/bot{self.token}"
@@ -95,15 +97,19 @@ class TelegramBot:
             Dictionary mapping exchange names to status (LIVE or FAKE)
         """
         exchange_status = {
-            "Binance": "LIVE",
-            "Bybit": "LIVE",
+            "Binance": "FAKE",
+            "Bybit": "FAKE",
             "OKX": "FAKE",
-            "KuCoin": "LIVE",
+            "KuCoin": "FAKE",
             "Bitget": "FAKE",
-            "BingX": "LIVE",
+            "BingX": "FAKE",
             "HTX": "FAKE"
         }
         
+        if self.exchanges:
+            for name, exchange in self.exchanges.items():
+                if name in exchange_status:
+                    exchange_status[name] = "LIVE"
         
         return exchange_status
     
@@ -114,14 +120,21 @@ class TelegramBot:
             Dictionary mapping metric names to status (LIVE or FAKE)
         """
         metrics_status = {
-            "Open Interest Change": "LIVE",
-            "Volume Spike": "LIVE",
-            "Funding Rate": "LIVE",
+            "Open Interest Change": "FAKE",
+            "Volume Spike": "FAKE",
+            "Funding Rate": "FAKE",
             "Price Recovery": "FAKE",
-            "CVD": "LIVE",
+            "CVD": "FAKE",
             "Liquidation Spike": "FAKE"
         }
         
+        if self.metrics:
+            for metric in self.metrics:
+                name = metric.name
+                if name == "Cumulative Volume Delta":
+                    metrics_status["CVD"] = "LIVE"
+                elif name in metrics_status:
+                    metrics_status[name] = "LIVE"
         
         return metrics_status
         
@@ -132,24 +145,29 @@ class TelegramBot:
             text: Message text
             parse_mode: Parse mode for the message
         """
-        try:
-            url = f"{self.base_url}/sendMessage"
-            
-            payload = {
-                "chat_id": self.chat_id,
-                "text": text,
-                "parse_mode": parse_mode
-            }
-            
-            response = requests.post(url, json=payload)
-            
-            if response.status_code == 200:
-                self.logger.info(f"Message sent to Telegram chat {self.chat_id}")
-            else:
-                self.logger.error(f"Error sending message to Telegram: {response.text}")
+        success = False
+        for chat_id in self.chat_ids:
+            try:
+                url = f"{self.base_url}/sendMessage"
                 
-        except Exception as e:
-            self.logger.error(f"Error sending message to Telegram: {str(e)}")
+                payload = {
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": parse_mode
+                }
+                
+                response = requests.post(url, json=payload)
+                
+                if response.status_code == 200:
+                    self.logger.info(f"Message sent to Telegram chat {chat_id}")
+                    success = True
+                else:
+                    self.logger.error(f"Error sending message to Telegram chat {chat_id}: {response.text}")
+                    
+            except Exception as e:
+                self.logger.error(f"Error sending message to Telegram chat {chat_id}: {str(e)}")
+                
+        return success
             
     def send_signal(self, signal: Dict[str, Any]):
         """Send a trading signal to Telegram.

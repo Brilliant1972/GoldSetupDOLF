@@ -78,8 +78,17 @@ class SignalGenerator:
                 
             signal = self._create_signal(symbol, confirmed_metrics, metrics_results, market_condition)
             
-            if signal["confidence"] < 50:
-                self.logger.info(f"Signal for {symbol} suppressed (confidence {signal['confidence']}% < 50%)")
+            # Determine minimum confidence threshold based on market condition
+            min_confidence = 50  # Default
+            if market_condition == "Calm":
+                min_confidence = 70
+            elif market_condition == "Medium":
+                min_confidence = 50
+            elif market_condition == "Aggressive":
+                min_confidence = 40
+                
+            if signal["confidence"] < min_confidence:
+                self.logger.info(f"Signal for {symbol} suppressed (confidence {signal['confidence']:.1f}% < {min_confidence}% for {market_condition} market)")
                 return None
             
             # Update last signal time
@@ -136,10 +145,14 @@ class SignalGenerator:
                 else:
                     has_negative_cvd = True
         
-        # DOLF direction determination logic
-        if has_open_interest_up and has_volume_spike_up and has_price_recovery and has_positive_funding:
+        # DOLF direction determination logic - strict implementation
+        # Check if we have the required metrics for LONG signal
+        if (has_open_interest_up and has_volume_spike_up and has_price_recovery and has_positive_funding and
+            len([m for m in confirmed_metrics if m["name"] in ["Open Interest Change", "Volume Spike", "Price Recovery", "Funding Rate"]]) >= 3):
             direction = "LONG"
-        elif has_open_interest_up and has_volume_spike_up and has_price_breakdown and has_negative_funding:
+        # Check if we have the required metrics for SHORT signal
+        elif (has_open_interest_up and has_volume_spike_up and has_price_breakdown and has_negative_funding and
+              len([m for m in confirmed_metrics if m["name"] in ["Open Interest Change", "Volume Spike", "Price Recovery", "Funding Rate"]]) >= 3):
             direction = "SHORT"
         else:
             positive_count = sum([1 for m in confirmed_metrics if (
@@ -155,7 +168,19 @@ class SignalGenerator:
             direction = "LONG" if positive_count > negative_count else "SHORT"
         
         # Calculate confidence score (0-100)
-        confidence = (max(positive_count, negative_count) / len(confirmed_metrics)) * 100
+        confidence = (len(confirmed_metrics) / 6) * 100
+        
+        # Adjust confidence threshold based on market condition
+        min_confidence = 50  # Default
+        if market_condition == "Calm":
+            min_confidence = 70
+        elif market_condition == "Medium":
+            min_confidence = 50
+        elif market_condition == "Aggressive":
+            min_confidence = 40
+            
+        # Log the confidence and threshold
+        self.logger.info(f"Signal confidence: {confidence:.1f}%, minimum threshold for {market_condition} market: {min_confidence}%")
         
         # Generate explanation for each metric
         explanations = []
@@ -193,7 +218,17 @@ class SignalGenerator:
         
         # Default values if we couldn't get from metrics
         if current_price <= 0:
-            current_price = 30000  # Default for testing
+            symbol_without_slash = symbol.replace('/', '')
+            
+            for metric in all_metrics:
+                if metric["name"] == "Price Recovery" and current_price <= 0:
+                    if "details" in metric and "current_price" in metric["details"]:
+                        current_price = float(metric["details"]["current_price"])
+                        break
+            
+            if current_price <= 0:
+                self.logger.error(f"Could not determine price for {symbol}, signal may be inaccurate")
+                current_price = 1.0  # Set a neutral default that won't cause extreme TP/SL values
         
         if volatility <= 0:
             volatility = current_price * 0.01  # Default 1% volatility

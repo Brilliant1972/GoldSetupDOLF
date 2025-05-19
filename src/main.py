@@ -24,6 +24,15 @@ from src.market.condition import MarketConditionDetector
 from src.market.coinmarketcap import CoinMarketCapAPI
 from src.telegram.bot import TelegramBot
 
+# Import exchange connectors
+from src.exchanges.binance import BinanceExchange
+from src.exchanges.bybit import BybitExchange
+from src.exchanges.okx import OKXExchange
+from src.exchanges.kucoin import KuCoinExchange
+from src.exchanges.bitget import BitgetExchange
+from src.exchanges.bingx import BingXExchange
+from src.exchanges.htx import HTXExchange
+
 
 # Configure logging
 logging.basicConfig(
@@ -46,6 +55,10 @@ class DOLFBot:
         self.logger = logger
         self.use_mock = use_mock
         
+        if os.getenv("USE_MOCK_DATA", "false").lower() == "true":
+            self.use_mock = True
+            self.logger.info("USE_MOCK_DATA is set to true in .env, using mock data")
+        
         # Load environment variables
         load_dotenv()
         
@@ -55,10 +68,66 @@ class DOLFBot:
             self.exchanges["Binance"] = MockBinanceExchange()
             self.logger.info("Using mock exchange data")
         else:
-            self.exchanges["Binance"] = MockBinanceExchange()  # Use mock for now
-            self.logger.info("Using mock exchange for now")
+            # Initialize exchanges with API keys from .env
+            binance_key = os.getenv("BINANCE_API_KEY")
+            binance_secret = os.getenv("BINANCE_API_SECRET")
+            if binance_key and binance_secret and binance_key != "your_binance_api_key":
+                self.exchanges["Binance"] = BinanceExchange(binance_key, binance_secret)
+                self.logger.info("Initialized Binance exchange with real API keys")
+            else:
+                self.exchanges["Binance"] = MockBinanceExchange()
+                self.logger.info("Using mock Binance exchange (missing API keys)")
+                
+            # Initialize Bybit exchange
+            bybit_key = os.getenv("BYBIT_API_KEY")
+            bybit_secret = os.getenv("BYBIT_API_SECRET")
+            if bybit_key and bybit_secret and bybit_key != "your_bybit_api_key":
+                self.exchanges["Bybit"] = BybitExchange(bybit_key, bybit_secret)
+                self.logger.info("Initialized Bybit exchange with real API keys")
+                
+            # Initialize OKX exchange
+            okx_key = os.getenv("OKX_API_KEY")
+            okx_secret = os.getenv("OKX_API_SECRET")
+            okx_passphrase = os.getenv("OKX_PASSPHRASE")
+            if okx_key and okx_secret and okx_passphrase and okx_key != "your_okx_api_key":
+                self.exchanges["OKX"] = OKXExchange(okx_key, okx_secret, okx_passphrase)
+                self.logger.info("Initialized OKX exchange with real API keys")
+                
+            # Initialize KuCoin exchange
+            kucoin_key = os.getenv("KUCOIN_API_KEY")
+            kucoin_secret = os.getenv("KUCOIN_API_SECRET")
+            kucoin_passphrase = os.getenv("KUCOIN_PASSPHRASE")
+            if kucoin_key and kucoin_secret and kucoin_passphrase and kucoin_key != "your_kucoin_api_key":
+                self.exchanges["KuCoin"] = KuCoinExchange(kucoin_key, kucoin_secret, kucoin_passphrase)
+                self.logger.info("Initialized KuCoin exchange with real API keys")
+                
+            # Initialize Bitget exchange
+            bitget_key = os.getenv("BITGET_API_KEY")
+            bitget_secret = os.getenv("BITGET_API_SECRET")
+            bitget_passphrase = os.getenv("BITGET_PASSPHRASE")
+            if bitget_key and bitget_secret and bitget_passphrase and bitget_key != "your_bitget_api_key":
+                self.exchanges["Bitget"] = BitgetExchange(bitget_key, bitget_secret, bitget_passphrase)
+                self.logger.info("Initialized Bitget exchange with real API keys")
+                
+            # Initialize BingX exchange
+            bingx_key = os.getenv("BINGX_API_KEY")
+            bingx_secret = os.getenv("BINGX_API_SECRET")
+            if bingx_key and bingx_secret and bingx_key != "your_bingx_api_key":
+                self.exchanges["BingX"] = BingXExchange(bingx_key, bingx_secret)
+                self.logger.info("Initialized BingX exchange with real API keys")
+                
+            # Initialize HTX exchange
+            htx_key = os.getenv("HTX_API_KEY")
+            htx_secret = os.getenv("HTX_API_SECRET")
+            if htx_key and htx_secret and htx_key != "your_htx_api_key":
+                self.exchanges["HTX"] = HTXExchange(htx_key, htx_secret)
+                self.logger.info("Initialized HTX exchange with real API keys")
         
-        self.exchange = list(self.exchanges.values())[0]
+        if self.exchanges:
+            self.exchange = next(iter(self.exchanges.values()))
+        else:
+            self.exchange = MockBinanceExchange()
+            self.logger.warning("No exchanges initialized, using mock exchange")
         
         # Initialize metrics
         self.metrics = [
