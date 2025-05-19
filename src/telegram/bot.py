@@ -108,8 +108,24 @@ class TelegramBot:
         
         if self.exchanges:
             for name, exchange in self.exchanges.items():
-                if name in exchange_status:
-                    exchange_status[name] = "LIVE"
+                status = "FAKE"
+                reason = "Unknown"
+                
+                try:
+                    if not str(exchange.__class__.__name__).startswith("Mock"):
+                        status = "LIVE"
+                        self.logger.info(f"Exchange {name} is using LIVE connector")
+                    else:
+                        reason = "Using mock connector"
+                        self.logger.info(f"Exchange {name} is using mock connector")
+                except Exception as e:
+                    reason = str(e)
+                    self.logger.error(f"Error checking exchange {name}: {reason}")
+                
+                exchange_status[name] = status
+                
+                if status == "FAKE":
+                    self.logger.warning(f"Exchange {name} marked as FAKE: {reason}")
         
         return exchange_status
     
@@ -131,10 +147,30 @@ class TelegramBot:
         if self.metrics:
             for metric in self.metrics:
                 name = metric.name
-                if name == "Cumulative Volume Delta":
-                    metrics_status["CVD"] = "LIVE"
-                elif name in metrics_status:
-                    metrics_status[name] = "LIVE"
+                status = "FAKE"
+                reason = "Unknown"
+                
+                try:
+                    if hasattr(metric, 'status'):
+                        status = metric.status
+                        if status == "FAKE" and hasattr(metric, 'details') and metric.details:
+                            if "error" in metric.details:
+                                reason = metric.details["error"]
+                            elif "source" in metric.details:
+                                reason = f"Source: {metric.details['source']}"
+                    
+                    display_name = "CVD" if name == "Cumulative Volume Delta" else name
+                    
+                    metrics_status[display_name] = status
+                    
+                    if status == "FAKE":
+                        self.logger.warning(f"Metric {display_name} marked as FAKE: {reason}")
+                    else:
+                        self.logger.info(f"Metric {display_name} is using LIVE data")
+                        
+                except Exception as e:
+                    metrics_status[name if name != "Cumulative Volume Delta" else "CVD"] = "FAKE"
+                    self.logger.error(f"Error checking metric {name}: {str(e)}")
         
         return metrics_status
         
