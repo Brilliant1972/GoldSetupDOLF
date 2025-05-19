@@ -21,6 +21,7 @@ from src.metrics.cvd import CumulativeVolumeDelta
 from src.metrics.liquidation_spike import LiquidationSpike
 from src.signals.generator import SignalGenerator
 from src.market.condition import MarketConditionDetector
+from src.market.coinmarketcap import CoinMarketCapAPI
 from src.telegram.bot import TelegramBot
 
 
@@ -49,8 +50,15 @@ class DOLFBot:
         load_dotenv()
         
         # Initialize exchange connectors
-        self.exchange = MockBinanceExchange()
-        self.logger.info("Using mock exchange data")
+        self.exchanges = {}
+        if self.use_mock:
+            self.exchanges["Binance"] = MockBinanceExchange()
+            self.logger.info("Using mock exchange data")
+        else:
+            self.exchanges["Binance"] = MockBinanceExchange()  # Use mock for now
+            self.logger.info("Using mock exchange for now")
+        
+        self.exchange = list(self.exchanges.values())[0]
         
         # Initialize metrics
         self.metrics = [
@@ -138,6 +146,30 @@ class DOLFBot:
             "signal": signal
         }
     
+    async def get_top_coins(self, limit: int = 60) -> List[Dict[str, Any]]:
+        """Get top cryptocurrencies and filter for supported futures markets.
+        
+        Args:
+            limit: Number of coins to retrieve (default: 60)
+            
+        Returns:
+            List of supported coin symbols in trading pair format (e.g., 'BTC/USDT')
+        """
+        self.logger.info(f"Fetching top {limit} coins from CoinMarketCap/CoinGecko")
+        
+        # Initialize CoinMarketCap API
+        cmc = CoinMarketCapAPI()
+        
+        top_coins_data = cmc.get_top_coins(limit)
+        coins = top_coins_data.get("coins", [])
+        source = top_coins_data.get("source", "Unknown")
+        
+        self.logger.info(f"Retrieved {len(coins)} coins from {source}")
+        
+        filtered_coins = cmc.filter_supported_coins(coins, list(self.exchanges.keys()))
+        
+        return filtered_coins
+        
     async def run(self, symbols: List[str], interval: int = 300):
         """Run the bot in continuous mode.
         
@@ -166,22 +198,50 @@ async def main():
     import argparse
     parser = argparse.ArgumentParser(description='DOLF Trading Bot')
     parser.add_argument('--mock', action='store_true', help='Use mock data instead of real API data')
-    parser.add_argument('--symbols', type=str, default='BTC/USDT', help='Comma-separated list of symbols to analyze')
+    parser.add_argument('--symbols', type=str, default='', help='Comma-separated list of symbols to analyze (optional)')
     parser.add_argument('--interval', type=int, default=300, help='Analysis interval in seconds (default: 5 minutes)')
     parser.add_argument('--once', action='store_true', help='Run once and exit')
+    parser.add_argument('--limit', type=int, default=60, help='Number of top coins to analyze (default: 60)')
     args = parser.parse_args()
     
     # Initialize the bot
     bot = DOLFBot(use_mock=args.mock)
     
-    # Parse symbols
-    symbols = [s.strip() for s in args.symbols.split(',')]
+    # Get symbols to analyze
+    symbols = []
+    if args.symbols:
+        symbols = [s.strip() for s in args.symbols.split(',')]
+        logger.info(f"Using command-line provided symbols: {', '.join(symbols)}")
+    else:
+        top_coins = await bot.get_top_coins(limit=args.limit)
+        
+        for coin in top_coins:
+            symbol = coin.get("symbol")
+            symbol_pairs = [f"{symbol}/USDT", f"{symbol}/USD", f"{symbol}/USDC"]
+            symbols.extend(symbol_pairs[:1])  # Just add the first pair for each coin to avoid overloading
+        
+        logger.info(f"Using top {len(symbols)} coins from market data")
     
     if args.once:
         # Run once for each symbol
         for symbol in symbols:
-            await bot.analyze_symbol(symbol)
+            try:
+                await bot.analyze_symbol(symbol)
+            except Exception as e:
+                logger.error(f"Error analyzing {symbol}: {str(e)}")
     else:
+        # Initialize Telegram bot with exchanges and metrics
+        if bot.telegram_bot is not None:
+            try:
+                bot.telegram_bot.initialize(
+                    exchanges=bot.exchanges,
+                    metrics=bot.metrics,
+                    market_condition="Medium",
+                    confidence_threshold=0.5
+                )
+            except Exception as e:
+                logger.error(f"Error initializing Telegram bot: {str(e)}")
+                
         # Run in continuous mode
         await bot.run(symbols, args.interval)
 
